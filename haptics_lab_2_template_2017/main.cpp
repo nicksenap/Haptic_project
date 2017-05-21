@@ -45,6 +45,9 @@ bool mirroredDisplay = false;
 // a world that contains all objects of the virtual environment
 cWorld* world;
 
+// virtual Racket mesh
+cMesh* Racket;
+
 // a camera to render the world in the window display
 cCamera* camera;
 
@@ -53,10 +56,6 @@ cDirectionalLight *light;
 
 // a virtual object
 cMultiMesh* object;
-//cMultiMesh* object2;
-
-// virtual racket mesh
-cMesh* racket;
 
 // a haptic device handler
 cHapticDeviceHandler* handler;
@@ -64,8 +63,14 @@ cHapticDeviceHandler* handler;
 // a pointer to the current haptic device
 cGenericHapticDevicePtr hapticDevice;
 
+// // a virtual tool representing the haptic device in the scene
+// cToolCursor* tool;
+
 // a virtual tool representing the haptic device in the scene
-cToolCursor* tool;
+cGeneric3dofPointer* tool;
+
+// radius of the tool proxy
+double proxyRadius;
 
 // a colored background
 cBackground* background;
@@ -304,7 +309,7 @@ int main(int argc, char* argv[])
 
     // set the near and far clipping planes of the camera
     // anything in front or behind these clipping planes will not be rendered
-    camera->setClippingPlanes(0.01, 100);cMaterial m;
+    camera->setClippingPlanes(0.01, 100);
 
     // set stereo mode
     camera->setStereoMode(stereoMode);
@@ -350,11 +355,8 @@ int main(int argc, char* argv[])
     // retrieve information about the current haptic device
     cHapticDeviceInfo hapticDeviceInfo = hapticDevice->getSpecifications();
 
-    // create a tool (cursor) and insert into the world
-    tool = new cToolCursor(world);
+    tool = new cGeneric3dofPointer(world);
     world->addChild(tool);
-
-    // tool->loadFromFile("lab2objectXXL.obj");
 
     // connect the haptic device to the virtual tool
     tool->setHapticDevice(hapticDevice);
@@ -400,112 +402,92 @@ int main(int argc, char* argv[])
     // stiffness properties
     double maxStiffness	= hapticDeviceInfo.m_maxLinearStiffness / workspaceScaleFactor;
 
-//    // create a virtual mesh
-//    object = new cMultiMesh();
+    // create a virtual mesh
+    object = new cMultiMesh();
 
-//    // add object to world
-//    world->addChild(object);
+    // add object to world
+    world->addChild(object);
 
-//    // load an object file
-//    bool fileload;
-//    fileload = object->loadFromFile("Racket.3ds");
-//    if (!fileload)
-//    {
-//        #if defined(_MSVC)
-//        fileload = object->loadFromFile("Racket.3ds");
-//        #endif
-//    }
-//    if (!fileload)
-//    {
-//        cout << "Error - 3D Model failed to load correctly" << endl;
-//        close();
-//        return (-1);
-//    }
+    // load an object file
+    bool fileload;
+    fileload = object->loadFromFile("Racket.3ds");
+    if (!fileload)
+    {
+        #if defined(_MSVC)
+        fileload = object->loadFromFile("Racket.3ds");
+        #endif
+    }
+    if (!fileload)
+    {
+        cout << "Error - 3D Model failed to load correctly" << endl;
+        close();
+        return (-1);
+    }
 
+/*
+    // get dimensions of object
+    object->computeBoundaryBox(true);
+    double size = cSub(object->getBoundaryMax(), object->getBoundaryMin()).length();
 
-///*
-//    // get dimensions of object
-//    object->computeBoundaryBox(true);
-//    double size = cSub(object->getBoundaryMax(), object->getBoundaryMin()).
-//        if (!fileload)length();
+    // resize object to screen
+    if (size > 0.001)
+    {
+        object->scale(1.0 / size);
+    }
+*/
 
-//    // resize object to screen
-//    if (size > 0.001)
-//    {
-//        object->scale(1.0 / size);
-//    }
-//*/
+    cMaterial m;
+    m.setBlueCadet();
+    object->setMaterial(m);
 
-//    m.setBlueCadet();
-//    object->setMaterial(m);
+    // disable culling so that faces are rendered on both sides
+    object->setUseCulling(false);
 
-//    // disable culling so that faces are rendered on both sides
-//    object->setUseCulling(false);
+    // compute a boundary box
+    object->computeBoundaryBox(true);
 
-//    // compute a boundary box
-//    object->computeBoundaryBox(true);
+    // show/hide boundary box
+    object->setShowBoundaryBox(false);
 
-//    // show/hide boundary box
-//    object->setShowBoundaryBox(false);
+    // compute collision detection algorithm
+    object->createAABBCollisionDetector(toolRadius);
 
-//    // compute collision detection algorithm
-//    object->createAABBCollisionDetector(toolRadius);
+    // define a default stiffness for the object
+    object->setStiffness(0.2 * maxStiffness, true);
 
-//    // define a default stiffness for the object
-//    object->setStiffness(0.2 * maxStiffness, true);
+    // define some haptic friction properties
+    object->setFriction(0.1, 0.2, true);
 
-//    // define some haptic friction properties
-//    object->setFriction(1.9, 1.5, true);
+    // enable display list for faster graphic rendering
+    object->setUseDisplayList(true);
 
-//    // enable display list for faster graphic rendering
-//    object->setUseDisplayList(true);
+    // center object in scene
+    object->setLocalPos(-1.0 * object->getBoundaryCenter());
 
-//    // center object in scene
-//    object->setLocalPos(-1.0 * object->getBoundaryCenter());
-
-//    // rotate object in scene
-//    //object->rotateExtrinsicEulerAnglesDeg(0, 0, 90, C_EULER_ORDER_XYZ);
-
-
-//    // compute all edges of object for which adjacent triangles have more than 40 degree angle
-//    object->computeAllEdges(0);
-
-//    // set line width of edges and color
-//    cColorf colorEdges;
-//    colorEdges.setBlack();
-//    object->setEdgeProperties(1, colorEdges);
-
-//    // set normal properties for display
-//    cColorf colorNormals;
-//    colorNormals.setOrangeTomato();
-//    object->setNormalsProperties(0.01, colorNormals);
-
-//    // display options
-//    object->setShowTriangles(showTriangles);
-//    object->setShowEdges(showEdges);
-//    object->setShowNormals(showNormals);
-//    // object->setHapticDevice(hapticDevice);
+    // rotate object in scene
+    //object->rotateExtrinsicEulerAnglesDeg(0, 0, 90, C_EULER_ORDER_XYZ);
 
 
+    // compute all edges of object for which adjacent triangles have more than 40 degree angle
+    object->computeAllEdges(0);
 
+    // set line width of edges and color
+    cColorf colorEdges;
+    colorEdges.setBlack();
+    object->setEdgeProperties(1, colorEdges);
 
-    // create a new mesh.
-       racket = new cMesh(world);
+    // set normal properties for display
+    cColorf colorNormals;
+    colorNormals.setOrangeTomato();
+    object->setNormalsProperties(0.01, colorNormals);
 
-       // load a drill like mesh and attach it to the tool
-       fileload = ->loadFromFile(RESOURCE_PATH("Racket.3ds"));
-       if (!fileload)
-       {
-           #if defined(_MSVC)
-           fileload = racket->loadFromFile("Racket.3ds");
-           #endif
-       }
-       if (!fileload)
-       {
-           printf("Error - 3D Model failed to load correctly.\n");
-           close();
-           return (-1);
-   }
+    // display options
+    object->setShowTriangles(showTriangles);
+    object->setShowEdges(showEdges);
+    object->setShowNormals(showNormals);
+
+    tool->m_proxyMesh->addChild(object);
+
 
     //--------------------------------------------------------------------------
     // WIDGETS
@@ -830,7 +812,6 @@ void updateHaptics(void)
             if (tool->m_hapticPoint->getNumCollisionEvents() > 0)
             {
                 // get contact event
-                tool->setDeviceGlobalForce(-100, 0.0 ,0.0);
                 cCollisionEvent* collisionEvent = tool->m_hapticPoint->getCollisionEvent(0);
 
                 // get object from contact event
@@ -841,19 +822,6 @@ void updateHaptics(void)
                 selectedObject = object;
             }
 
-
-
-            // wait for graphics and haptics loops to terminate
-            while (!simulationFinished) { cSleepMs(100); }
-
-            // close haptic device
-            tool->stop();
-
-            // delete resources
-            delete hapticsThread;
-            delete world;
-            delete handler;
-        }
             // get transformation from object
             cTransform world_T_object = selectedObject->getGlobalTransform();
 
@@ -887,7 +855,7 @@ void updateHaptics(void)
             selectedObject->setLocalTransform(parent_T_object);
 
             // set zero forces when manipulating objects
-            tool->setDeviceGlobalForce(3.0, 0.0, 0.0);
+            tool->setDeviceGlobalForce(0.0, 0.0, 0.0);
 
             tool->initialize();
         }
@@ -902,19 +870,6 @@ void updateHaptics(void)
         }
 
 
-
-
-        // wait for graphics and haptics loops to terminate
-        while (!simulationFinished) { cSleepMs(100); }
-
-        // close haptic device
-        tool->stop();
-
-        // delete resources
-        delete hapticsThread;
-        delete world;
-        delete handler;
-    }
         /////////////////////////////////////////////////////////////////////////
         // FINALIZE
         /////////////////////////////////////////////////////////////////////////
@@ -976,10 +931,3 @@ void updateHaptics(void)
     \version   3.2.0 $Rev: 2049 $
 */
 //==============================================================================
-
-
-
-
-
-
-
