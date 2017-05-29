@@ -9,13 +9,25 @@
  *
  */
 
+#include <assert.h>
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
 //------------------------------------------------------------------------------
 #include "chai3d.h"
+#include "CODE.h"
+#include "CODEWorld.h"
+#include "CODEGenericBody.h"
+
 //------------------------------------------------------------------------------
 #include <GLFW/glfw3.h>
 //------------------------------------------------------------------------------
+
 using namespace chai3d;
 using namespace std;
+
 //------------------------------------------------------------------------------
 
 //------------------------------------------------------------------------------
@@ -42,12 +54,25 @@ bool mirroredDisplay = false;
 // DECLARED VARIABLES
 //------------------------------------------------------------------------------
 
+
+// workspace scale factor
+double workspaceScaleFactor = 30.0;
+
+// a label to display the rate [Hz] at which the simulation is running
+cLabel* labelRates;
+
+// stiffness of virtual spring
+double linGain = 0.2;
+double angGain = 0.03;
+double linG;
+double angG;
+double linStiffness = 800;
+double angStiffness = 30;
+
 // a world that contains all objects of the virtual environment
 cWorld* world;
 
-// virtual Racket mesh
-cMesh* Racket;
-
+cMesh* object0;
 // a camera to render the world in the window display
 cCamera* camera;
 
@@ -63,14 +88,8 @@ cHapticDeviceHandler* handler;
 // a pointer to the current haptic device
 cGenericHapticDevicePtr hapticDevice;
 
-// // a virtual tool representing the haptic device in the scene
-// cToolCursor* tool;
-
 // a virtual tool representing the haptic device in the scene
-cGeneric3dofPointer* tool;
-
-// radius of the tool proxy
-double proxyRadius;
+cToolCursor* tool;
 
 // a colored background
 cBackground* background;
@@ -79,7 +98,7 @@ cBackground* background;
 cFontPtr font;
 
 // a label to display the rate [Hz] at which the simulation is running
-cLabel* labelRates;
+// cLabel* labelRates;
 
 // a flag that indicates if the haptic simulation is currently running
 bool simulationRunning = false;
@@ -106,6 +125,26 @@ cThread* hapticsThread;
 
 // a handle to window display context
 GLFWwindow* window = NULL;
+
+
+//---------------------------------------------------------------------------
+// ODE MODULE VARIABLES
+//---------------------------------------------------------------------------
+
+// Add ODE object
+cODEGenericBody* ODEBall;
+
+//Add ODE world
+cODEWorld* ODEWorld;
+
+
+cODEGenericBody* ODEGPlane0;
+cODEGenericBody* ODEGPlane1;
+cODEGenericBody* ODEGPlane2;
+cODEGenericBody* ODEGPlane3;
+cODEGenericBody* ODEGPlane4;
+cODEGenericBody* ODEGPlane5;
+//--------------------------------------------------------------------------
 
 // current width of window
 int width  = 0;
@@ -190,7 +229,7 @@ int main(int argc, char* argv[])
     cout << "[4] - Increase collision tree display depth" << endl;
     cout << "[5] - Decrease collision tree display depth" << endl;
     cout << "[s] - Save screenshot to file" << endl;
-    cout << "[e] - Enable/Disable display of edges" << endl;
+    cout << "[e] - Enable/Disable display of edcd /opt/chai3d/3.2.0/bin/lin-x86_64ges" << endl;
     cout << "[t] - Enable/Disable display of triangles" << endl;
     cout << "[n] - Enable/Disable display of normals" << endl;
     cout << "[f] - Enable/Disable full screen mode" << endl;
@@ -266,7 +305,7 @@ int main(int argc, char* argv[])
     // sets the swap interval for the current display context
     glfwSwapInterval(swapInterval);
 
-#ifdef GLEW_VERSION
+    #ifdef GLEW_VERSION
     // initialize GLEW library
     if (glewInit() != GLEW_OK)
     {
@@ -274,76 +313,58 @@ int main(int argc, char* argv[])
         glfwTerminate();
         return 1;
     }
-#endif
+    #endif
 
 
-    //--------------------------------------------------------------------------
-    // WORLD - CAMERA - LIGHTING
-    //--------------------------------------------------------------------------
-
+    //-----------------------------------------------------------------------
+    // 3D - SCENEGRAPH
+    //-----------------------------------------------------------------------
     // create a new world.
     world = new cWorld();
 
     // set the background color of the environment
-    world->m_backgroundColor.setBlack();
+    world->m_backgroundColor.setWhite();
 
     // create a camera and insert it into the virtual world
     camera = new cCamera(world);
     world->addChild(camera);
 
-
-    /*
-    // define a basis in spherical coordinates for the camera
-    camera->setSphericalReferences(cVector3d(0.8, 0.0, 0.5),    // origin
-                                   cVector3d(0.0, 0.0, 1.0),    // zenith direction
-                                   cVector3d(1.0, 0.0, 0.0));   // azimuth direction
-
-    camera->setSphericalDeg(1.0,    // spherical coordinate radius
-                            65,     // spherical coordinate polar angle
-                            20);    // spherical coordinate azimuth angle
-    */
     // position and orient the camera
-    camera->set( cVector3d (0.4, 0.0, 0.2),    // camera position (eye)
-                 cVector3d (0.0, 0.0, 0.0),    // lookat position (target)
-                 cVector3d (0.0, 0.0, 1.0));   // direction of the (up) vector
+    camera->set(cVector3d(2.5, 0.0, 0.3),    // camera position (eye)
+                cVector3d(0.0, 0.0,-0.5),    // lookat position (target)
+                cVector3d(0.0, 0.0, 1.0));   // direction of the "up" vector
 
     // set the near and far clipping planes of the camera
-    // anything in front or behind these clipping planes will not be rendered
-    camera->setClippingPlanes(0.01, 100);
+    camera->setClippingPlanes(0.01, 10.0);
 
     // set stereo mode
     camera->setStereoMode(stereoMode);
 
     // set stereo eye separation and focal length (applies only if stereo is enabled)
-    camera->setStereoEyeSeparation(0.03);
-    camera->setStereoFocalLength(1.5);
+    camera->setStereoEyeSeparation(0.02);
+    camera->setStereoFocalLength(2.0);
 
     // set vertical mirrored display mode
     camera->setMirrorVertical(mirroredDisplay);
 
-    // enable multi-pass rendering to handle transparent objects
-    camera->setUseMultipassTransparency(true);
-
     // create a light source
-    light = new cDirectionalLight(world);
+    light = new cSpotLight(world);
 
     // attach light to camera
-    camera->addChild(light);
+    world->addChild(light);
 
     // enable light source
     light->setEnabled(true);
 
-    // define the direction of the light beam
-    light->setDir(-3.0,-0.5, 0.0);
+    // position the light source
+    light->setLocalPos( 0, 0, 1.2);
 
-    // set lighting conditions
-    light->m_ambient.set(0.4f, 0.4f, 0.4f);
-    light->m_diffuse.set(0.8f, 0.8f, 0.8f);
-    light->m_specular.set(1.0f, 1.0f, 1.0f);
+    // define the direction of the light beam
+    light->setDir(0,0,-1.0);
 
 
     //--------------------------------------------------------------------------
-    // HAPTIC DEVICES / TOOLS
+    // HAPTIC DEVICES
     //--------------------------------------------------------------------------
 
     // create a haptic device handler
@@ -355,7 +376,12 @@ int main(int argc, char* argv[])
     // retrieve information about the current haptic device
     cHapticDeviceInfo hapticDeviceInfo = hapticDevice->getSpecifications();
 
-    tool = new cGeneric3dofPointer(world);
+    //--------------------------------------------------------------------------
+    // TOOLS
+    //--------------------------------------------------------------------------
+
+    // create a tool (cursor) and insert into the world
+    tool = new cToolCursor(world);
     world->addChild(tool);
 
     // connect the haptic device to the virtual tool
@@ -365,7 +391,7 @@ int main(int argc, char* argv[])
     hapticDevice->setEnableGripperUserSwitch(true);
 
     // define the radius of the tool (sphere)
-    double toolRadius = 0.01;
+    double toolRadius = 0.1;
 
     // define a radius for the tool
     tool->setRadius(toolRadius);
@@ -377,7 +403,7 @@ int main(int argc, char* argv[])
     tool->m_hapticPoint->m_sphereProxy->m_material->setWhite();
 
     // map the physical workspace of the haptic device to a larger virtual workspace.
-    tool->setWorkspaceRadius(0.1);
+    tool->setWorkspaceRadius(0.6);
 
     // oriente tool with camera
     tool->setLocalRot(camera->getLocalRot());
@@ -390,6 +416,133 @@ int main(int argc, char* argv[])
     // start the haptic tool
     tool->start();
 
+    //-----------------------------------------------------------------------
+    // COMPOSE THE VIRTUAL SCENE
+    //-----------------------------------------------------------------------
+
+    //////////////////////////////////////////////////////////////////////////
+    // ODE WORLD
+    //////////////////////////////////////////////////////////////////////////
+
+//    // stiffness properties
+//    double maxStiffness	= hapticDeviceInfo.m_maxLinearStiffness / workspaceScaleFactor;
+
+//    // clamp the force output gain to the max device stiffness
+//    linGain = cMin(linGain, maxStiffness / linStiffness);
+
+//    // create an ODE world to simulate dynamic bodies
+//    ODEWorld = new cODEWorld(world);
+
+//    // set some gravity
+//    ODEWorld->setGravity(cVector3d(0.0, 0.0, -9.81));
+
+//    // define damping properties
+//    ODEWorld->setAngularDamping(0.00002);
+//    ODEWorld->setLinearDamping(0.00002);
+
+//    // add ODE world as a node inside world
+//    world->addChild(ODEWorld);
+    //////////////////////////////////////////////////////////////////////////
+     // ODE WORLD
+     //////////////////////////////////////////////////////////////////////////
+
+     // stiffness properties
+     double maxStiffness	= hapticDeviceInfo.m_maxLinearStiffness / workspaceScaleFactor;
+
+     // clamp the force output gain to the max device stiffness
+     linGain = cMin(linGain, maxStiffness / linStiffness);
+
+     // create an ODE world to simulate dynamic bodies
+     ODEWorld = new cODEWorld(world);
+
+     // add ODE world as a node inside world
+     world->addChild(ODEWorld);
+
+     // set some gravity
+     ODEWorld->setGravity(cVector3d(0.0, 0.0, -9.81));
+
+     // define damping properties
+     ODEWorld->setAngularDamping(0.00002);
+     ODEWorld->setLinearDamping(0.00002);
+
+
+
+    // create a new ODE object that is automatically added to the ODE world
+    ODEBall = new cODEGenericBody(ODEWorld);
+
+    // create a virtual mesh  that will be used for the geometry representation of the dynamic body
+    cMesh* object0 = new cMesh();
+
+    object0->createAABBCollisionDetector(toolRadius);
+
+    // create a Sphere meshworld
+    double size = 0.10;
+    cCreateSphere(object0, size);
+
+    cMaterial mat0;
+        mat0.setRedIndian();
+        mat0.m_specular.set(0, 0, 0);
+        mat0.setStiffness(0.1*maxStiffness);
+        mat0.setDynamicFriction(0.9);
+        mat0.setStaticFriction(0.9);
+        object0->setMaterial(mat0);
+
+    ODEBall->setMass(0.05);
+    ODEBall->setLocalPos(0.0, 0.0,-0.5);
+
+    ODEBall->setImageModel(object0);
+
+    ODEBall->createDynamicSphere(size,false);
+    world->addChild(ODEBall);
+
+
+
+    //////////////////////////////////////////////////////////////////////////
+    // 6 ODE INVISIBLE WALLS
+    //////////////////////////////////////////////////////////////////////////
+
+    // we create 6 static walls to contains the ball within a limited workspace
+        ODEGPlane0 = new cODEGenericBody(ODEWorld);
+        ODEGPlane1 = new cODEGenericBody(ODEWorld);
+        ODEGPlane2 = new cODEGenericBody(ODEWorld);
+        ODEGPlane3 = new cODEGenericBody(ODEWorld);
+        ODEGPlane4 = new cODEGenericBody(ODEWorld);
+        ODEGPlane5 = new cODEGenericBody(ODEWorld);
+
+        w = 1.0;
+        ODEGPlane0->createStaticPlane(cVector3d(0.0, 0.0,  2.0 * w), cVector3d(0.0, 0.0 ,-1.0));
+        ODEGPlane1->createStaticPlane(cVector3d(0.0, 0.0, -w), cVector3d(0.0, 0.0 , 1.0));
+        ODEGPlane2->createStaticPlane(cVector3d(0.0,  w, 0.0), cVector3d(0.0,-1.0, 0.0));
+        ODEGPlane3->createStaticPlane(cVector3d(0.0, -w, 0.0), cVector3d(0.0, 1.0, 0.0));
+        ODEGPlane4->createStaticPlane(cVector3d( w, 0.0, 0.0), cVector3d(-1.0,0.0, 0.0));
+        ODEGPlane5->createStaticPlane(cVector3d(-0.8 * w, 0.0, 0.0), cVector3d( 1.0,0.0, 0.0));
+
+
+    //////////////////////////////////////////////////////////////////////////
+    // GROUND
+    //////////////////////////////////////////////////////////////////////////
+
+        // create a mesh that represents the ground
+        cMesh* ground = new cMesh();
+        world->addChild(ground);
+
+        // create a plane
+        double groundSize = 3.0;
+        cCreatePlane(ground, groundSize, groundSize);
+
+        // position ground in world where the invisible ODE plane is located (ODEGPlane1)
+        ground->setLocalPos(0.0, 0.0, -1.0);
+
+        // define some material properties and apply to mesh
+        cMaterial matGround;
+        matGround.setStiffness(0.3 * maxStiffness);
+        matGround.setDynamicFriction(0.2);
+        matGround.setStaticFriction(0.0);
+        matGround.setWhite();
+        matGround.m_emission.setGrayLevel(0.3);
+        ground->setMaterial(matGround);
+
+
 
     //--------------------------------------------------------------------------
     // CREATE OBJECT
@@ -397,96 +550,10 @@ int main(int argc, char* argv[])
 
     // read the scale factor between the physical workspace of the haptic
     // device and the virtual workspace defined for the tool
-    double workspaceScaleFactor = tool->getWorkspaceScaleFactor();
 
     // stiffness properties
-    double maxStiffness	= hapticDeviceInfo.m_maxLinearStiffness / workspaceScaleFactor;
+    maxStiffness= hapticDeviceInfo.m_maxLinearStiffness / workspaceScaleFactor;
 
-    // create a virtual mesh
-    object = new cMultiMesh();
-
-    // add object to world
-    world->addChild(object);
-
-    // load an object file
-    bool fileload;
-    fileload = object->loadFromFile("Racket.3ds");
-    if (!fileload)
-    {
-        #if defined(_MSVC)
-        fileload = object->loadFromFile("Racket.3ds");
-        #endif
-    }
-    if (!fileload)
-    {
-        cout << "Error - 3D Model failed to load correctly" << endl;
-        close();
-        return (-1);
-    }
-
-/*
-    // get dimensions of object
-    object->computeBoundaryBox(true);
-    double size = cSub(object->getBoundaryMax(), object->getBoundaryMin()).length();
-
-    // resize object to screen
-    if (size > 0.001)
-    {
-        object->scale(1.0 / size);
-    }
-*/
-
-    cMaterial m;
-    m.setBlueCadet();
-    object->setMaterial(m);
-
-    // disable culling so that faces are rendered on both sides
-    object->setUseCulling(false);
-
-    // compute a boundary box
-    object->computeBoundaryBox(true);
-
-    // show/hide boundary box
-    object->setShowBoundaryBox(false);
-
-    // compute collision detection algorithm
-    object->createAABBCollisionDetector(toolRadius);
-
-    // define a default stiffness for the object
-    object->setStiffness(0.2 * maxStiffness, true);
-
-    // define some haptic friction properties
-    object->setFriction(0.1, 0.2, true);
-
-    // enable display list for faster graphic rendering
-    object->setUseDisplayList(true);
-
-    // center object in scene
-    object->setLocalPos(-1.0 * object->getBoundaryCenter());
-
-    // rotate object in scene
-    //object->rotateExtrinsicEulerAnglesDeg(0, 0, 90, C_EULER_ORDER_XYZ);
-
-
-    // compute all edges of object for which adjacent triangles have more than 40 degree angle
-    object->computeAllEdges(0);
-
-    // set line width of edges and color
-    cColorf colorEdges;
-    colorEdges.setBlack();
-    object->setEdgeProperties(1, colorEdges);
-
-    // set normal properties for display
-    cColorf colorNormals;
-    colorNormals.setOrangeTomato();
-    object->setNormalsProperties(0.01, colorNormals);
-
-    // display options
-    object->setShowTriangles(showTriangles);
-    object->setShowEdges(showEdges);
-    object->setShowNormals(showNormals);
-
-    tool->m_proxyMesh->addChild(object);
 
 
     //--------------------------------------------------------------------------
@@ -512,52 +579,56 @@ int main(int argc, char* argv[])
                                 cColorf(0.80f, 0.80f, 0.80f));
 
 
-    //--------------------------------------------------------------------------
+    //-----------------------------------------------------------------------
     // START SIMULATION
-    //--------------------------------------------------------------------------
+    //-----------------------------------------------------------------------
 
-    // create a thread which starts the main haptics rendering loop
-    hapticsThread = new cThread();
-    hapticsThread->start(updateHaptics, CTHREAD_PRIORITY_HAPTICS);
+        // simulation in now running
+        simulationRunning = true;
 
-    // setup callback when application exits
-    atexit(close);
+        // create a thread which starts the main haptics rendering loop
+        hapticsThread = new cThread();
+        hapticsThread->start(updateHaptics, CTHREAD_PRIORITY_HAPTICS);
+
+        // setup callback when application exits
+        atexit(close);
 
 
-    //--------------------------------------------------------------------------
-    // MAIN GRAPHIC LOOP
-    //--------------------------------------------------------------------------
+        //--------------------------------------------------------------------------
+        // MAIN GRAPHIC LOOP
+        //--------------------------------------------------------------------------
 
-    // call window size callback at initialization
-    windowSizeCallback(window, width, height);
+        // call window size callback at initialization
+        windowSizeCallback(window, width, height);
 
-    // main graphic loop
-    while (!glfwWindowShouldClose(window))
-    {
-        // get width and height of window
-        glfwGetWindowSize(window, &width, &height);
+        // main graphic loop
+        while (!glfwWindowShouldClose(window))
+        {
+            // get width and height of window
+            glfwGetWindowSize(window, &width, &height);
 
-        // render graphics
-        updateGraphics();
+            // render graphics
+            updateGraphics();
 
-        // swap buffers
-        glfwSwapBuffers(window);
+            // swap buffers
+            glfwSwapBuffers(window);
 
-        // process events
-        glfwPollEvents();
+            // process events
+            glfwPollEvents();
 
-        // signal frequency counter
-        freqCounterGraphics.signal(1);
-    }
+            // signal frequency counter
+            freqCounterGraphics.signal(1);
+        }
 
-    // close window
-    glfwDestroyWindow(window);
+        // close window
+        glfwDestroyWindow(window);
 
-    // terminate GLFW library
-    glfwTerminate();
+        // terminate GLFW library
+        glfwTerminate();
 
-    // exit
-    return 0;
+        // exit
+        return 0;
+
 }
 
 //------------------------------------------------------------------------------
@@ -592,77 +663,77 @@ void keyCallback(GLFWwindow* a_window, int a_key, int a_scancode, int a_action, 
         glfwSetWindowShouldClose(a_window, GLFW_TRUE);
     }
 
-    // option - show/hide texture
-    else if (a_key == GLFW_KEY_1)
-    {
-        bool useTexture = object->getUseTexture();
-        object->setUseTexture(!useTexture);
-    }
+//    // option - show/hide texture
+//    else if (a_key == GLFW_KEY_1)
+//    {
+//        bool useTexture = object->getUseTexture();
+//        object->setUseTexture(!useTexture);
+//    }
 
-    // option - enable/disable wire mode
-    else if (a_key == GLFW_KEY_2)
-    {
-        bool useWireMode = object->getWireMode();
-        object->setWireMode(!useWireMode, true);
-    }
+//    // option - enable/disable wire mode
+//    else if (a_key == GLFW_KEY_2)
+//    {
+//        bool useWireMode = object->getWireMode();
+//        object->setWireMode(!useWireMode, true);
+//    }
 
-    // option - show/hide collision detection tree
-    else if (a_key == GLFW_KEY_3)
-    {
-        cColorf color = cColorf(1.0, 0.0, 0.0);
-        object->setCollisionDetectorProperties(collisionTreeDisplayLevel, color, true);
-        bool show = object->getShowCollisionDetector();
-        object->setShowCollisionDetector(!show, true);
-    }
+//    // option - show/hide collision detection tree
+//    else if (a_key == GLFW_KEY_3)
+//    {
+//        cColorf color = cColorf(1.0, 0.0, 0.0);
+//        object->setCollisionDetectorProperties(collisionTreeDisplayLevel, color, true);
+//        bool show = object->getShowCollisionDetector();
+//        object->setShowCollisionDetector(!show, true);
+//    }
 
-    // option - decrease depth level of collision tree
-    else if (a_key == GLFW_KEY_4)
-    {
-        collisionTreeDisplayLevel--;
-        if (collisionTreeDisplayLevel < 0) { collisionTreeDisplayLevel = 0; }
-        cColorf color = cColorf(1.0, 0.0, 0.0);
-        object->setCollisionDetectorProperties(collisionTreeDisplayLevel, color, true);
-        object->setShowCollisionDetector(true, true);
-    }
+//    // option - decrease depth level of collision tree
+//    else if (a_key == GLFW_KEY_4)
+//    {
+//        collisionTreeDisplayLevel--;
+//        if (collisionTreeDisplayLevel < 0) { collisionTreeDisplayLevel = 0; }
+//        cColorf color = cColorf(1.0, 0.0, 0.0);
+//        object->setCollisionDetectorProperties(collisionTreeDisplayLevel, color, true);
+//        object->setShowCollisionDetector(true, true);
+//    }
 
-    // option - increase depth level of collision tree
-    else if (a_key == GLFW_KEY_5)
-    {
-        collisionTreeDisplayLevel++;
-        cColorf color = cColorf(1.0, 0.0, 0.0);
-        object->setCollisionDetectorProperties(collisionTreeDisplayLevel, color, true);
-        object->setShowCollisionDetector(true, true);
-    }
+//    // option - increase depth level of collision tree
+//    else if (a_key == GLFW_KEY_5)
+//    {
+//        collisionTreeDisplayLevel++;
+//        cColorf color = cColorf(1.0, 0.0, 0.0);
+//        object->setCollisionDetectorProperties(collisionTreeDisplayLevel, color, true);
+//        object->setShowCollisionDetector(true, true);
+//    }
 
-    // option - save screenshot to file
-    else if (a_key == GLFW_KEY_S)
-    {
-        cImagePtr image = cImage::create();
-        camera->copyImageBuffer(image);
-        image->saveToFile("screenshot.png");
-        cout << "> Saved screenshot to file.       \r";
-    }
+//    // option - save screenshot to file
+//    else if (a_key == GLFW_KEY_S)
+//    {
+//        cImagePtr image = cImage::create();
+//        camera->copyImageBuffer(image);
+//        image->saveToFile("screenshot.png");
+//        cout << "> Saved screenshot to file.       \r";
+//    }
 
-    // option - show/hide triangles
-    else if (a_key == GLFW_KEY_T)
-    {
-        showTriangles = !showTriangles;
-        object->setShowTriangles(showTriangles);
-    }
+//    // option - show/hide triangles
+//    else if (a_key == GLFW_KEY_T)
+//    {
+//        showTriangles = !showTriangles;
+//        object->setShowTriangles(showTriangles);
+//    }
 
-    // option - show/hide edges
-    else if (a_key == GLFW_KEY_E)
-    {
-        showEdges = !showEdges;
-        object->setShowEdges(showEdges);
-    }
+//    // option - show/hide edges
+//    else if (a_key == GLFW_KEY_E)
+//    {
+//        showEdges = !showEdges;
+//        object->setShowEdges(showEdges);
+//    }
 
-    // option - show/hide normals
-    else if (a_key == GLFW_KEY_N)
-    {
-        showNormals = !showNormals;
-        object->setShowNormals(showNormals);
-    }
+//    // option - show/hide normals
+//    else if (a_key == GLFW_KEY_N)
+//    {
+//        showNormals = !showNormals;
+//        object->setShowNormals(showNormals);
+//    }
 
     // option - toggle fullscreen
     else if (a_key == GLFW_KEY_F)
@@ -730,7 +801,7 @@ void updateGraphics(void)
 
     // update haptic and graphic rate data
     labelRates->setText(cStr(freqCounterGraphics.getFrequency(), 0) + " Hz / " +
-        cStr(freqCounterHaptics.getFrequency(), 0) + " Hz");
+                        cStr(freqCounterHaptics.getFrequency(), 0) + " Hz");
 
     // update position of label
     labelRates->setLocalPos((int)(0.5 * (width - labelRates->getWidth())), 15);
@@ -931,3 +1002,10 @@ void updateHaptics(void)
     \version   3.2.0 $Rev: 2049 $
 */
 //==============================================================================
+
+
+
+
+
+
+
