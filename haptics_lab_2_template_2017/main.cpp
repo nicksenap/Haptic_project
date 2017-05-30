@@ -375,7 +375,7 @@ int main(int argc, char* argv[])
     tool->setWorkspaceRadius(1.3);
 
     // define a radius for the virtual tool contact points (sphere)
-    double toolRadius = 0.2;
+    double toolRadius = 0.09;
     tool->setRadius(toolRadius, toolRadius);
 
     // enable if objects in the scene are going to rotate of translate
@@ -419,7 +419,7 @@ int main(int argc, char* argv[])
 
     // stiffness properties
     double maxStiffness	= hapticDeviceInfo.m_maxLinearStiffness / workspaceScaleFactor;
-
+    // double maxStiffness	= 0.0;
     // create an ODE world to simulate dynamic bodies
     ODEWorld = new cODEWorld(world);
 
@@ -443,22 +443,53 @@ int main(int argc, char* argv[])
 
     // create a virtual mesh  that will be used for the geometry representation of the dynamic body
     cMesh* object0 = new cMesh();
+    // create the target
+    cMesh* target = new cMesh();
 
     // create a sphere mesh
-    double size = 0.09;
+    double size = 0.2;
     cCreateSphere(object0, size);
     object0->createAABBCollisionDetector(toolRadius);
 
+    // create a cube mesh as target
+    cCreateBox(target, 0.8, 0.8, 0.8);
+    object0->createAABBCollisionDetector(toolRadius);
 
-    // define some material properties for each cube
+    // define some material properties for
     cMaterial mat0;
-    mat0.setRedIndian();
+    mat0.setBlueRoyal();
     mat0.setStiffness(0.3 * maxStiffness);
     mat0.setDynamicFriction(0.6);
     mat0.setStaticFriction(0.6);
     object0->setMaterial(mat0);
 
+    // set graphic properties
+    bool fileload;
+    object0->m_texture = cTexture2d::create();
+    fileload = object0->m_texture->loadFromFile("TennisBallTexture.jpg");
+    if (!fileload)
+    {
+          #if defined(_MSVC)
+          fileload = object0->m_texture->loadFromFile("TennisBallTexture.jpg");
+          #endif
+    }
 
+
+
+    // define some material properties for each cube
+    cMaterial mat1;
+    mat1.setRedIndian();
+    mat1.setStiffness(0.3 * maxStiffness);
+    mat1.setDynamicFriction(0.6);
+    mat1.setStaticFriction(0.6);
+    target->setMaterial(mat1);
+
+    // set position of the red target
+    // target->setLocalPos(0.0,-0.6,-0.5);
+    target->setLocalPos(-0.8,0.0,-0.4);
+
+
+    ODEWorld->addChild(target);
     // add mesh to ODE object
     ODEBody0->setImageModel(object0);
 
@@ -614,11 +645,11 @@ void keyCallback(GLFWwindow* a_window, int a_key, int a_scancode, int a_action, 
     {
         if (ODEWorld->getGravity().length() > 0.0)
         {
-            ODEWorld->setGravity(cVector3d(0.0, 0.0, 0.0));
+            ODEWorld->setGravity(cVector3d(0.0, 0.0, -1.0));
         }
         else
         {
-            ODEWorld->setGravity(cVector3d(0.0, 0.0,-9.81));
+            ODEWorld->setGravity(cVector3d(0.0, 0.0,-0.981));
         }
     }
 
@@ -651,11 +682,10 @@ void keyCallback(GLFWwindow* a_window, int a_key, int a_scancode, int a_action, 
         }
     }
 
-    // option - toggle vertical mirroring
+    // option
     else if (a_key == GLFW_KEY_M)
     {
-        mirroredDisplay = !mirroredDisplay;
-        camera->setMirrorVertical(mirroredDisplay);
+
     }
 }
 
